@@ -45,7 +45,7 @@ jobs:
           context: ./client
           file: ./client/Dockerfile
           push: true
-          tags: docker.io/pedrobrantis/frontend:latest
+          tags: docker.io/pedrobrantis/frontend:x123
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
@@ -56,7 +56,7 @@ jobs:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          tags: docker.io/pedrobrantis/backend:latest
+          tags: docker.io/pedrobrantis/backend:x123
           cache-from: type=gha,scope=backend
           cache-to: type=gha,mode=max,scope=backend
 
