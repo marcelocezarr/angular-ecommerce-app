@@ -1,0 +1,98 @@
+name: CI/CD – Build, Push & Rollout (SSH)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io                        # mude para docker.io se for Docker Hub
+  IMAGE_NAME: ${{ github.repository }}     # ghcr.io/<owner>/<repo>
+  NAMESPACE: app-demo                      # seu namespace k8s
+  DEPLOYMENT: backend                      # seu Deployment
+  CONTAINER: app                           # nome do container no Deployment
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # GHCR com GITHUB_TOKEN
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          # Docker Hub? use:
+          # username: ${{ secrets.REGISTRY_USERNAME }}
+          # password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Compute tags
+        id: meta
+        run: |
+          SHA_TAG=${GITHUB_SHA::7}
+          echo "sha_tag=$SHA_TAG" >> $GITHUB_OUTPUT
+          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHA_TAG}" >> $GITHUB_OUTPUT
+          echo "image_latest=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+
+      - name: Build & Push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ steps.meta.outputs.image_latest }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+    outputs:
+      image_sha: ${{ steps.meta.outputs.image }}
+      image_latest: ${{ steps.meta.outputs.image_latest }}
+
+  deploy:
+    name: Rollout via SSH on EC2
+    needs: build-and-push
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout (opcional, só pra ter repo)
+        uses: actions/checkout@v4
+
+      # Opcional: capturar host key pro known_hosts (melhor que StrictHostKeyChecking=no)
+      - name: Add EC2 host key
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rollout with SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.EC2_HOST }}       # IP público ou DNS da sua EC2
+          username: ${{ secrets.EC2_USER }}   # ex.: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}     # conteúdo do .pem
+          port: 22
+          script_stop: true
+          script: |
+            set -euo pipefail
+            # garante kubectl do k3s
+            export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+            # se precisar sudo:
+            alias kubectl='sudo KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl'
+
+            IMAGE="${{ needs.build-and-push.outputs.image_sha }}"
+            echo "Aplicando imagem ${IMAGE} em ${DEPLOYMENT}/${CONTAINER} (ns ${NAMESPACE})"
+
+            kubectl -n ${NAMESPACE} set image deployment/${DEPLOYMENT} ${CONTAINER}=${IMAGE}
+            kubectl -n ${NAMESPACE} rollout status deployment/${DEPLOYMENT} --timeout=300s
