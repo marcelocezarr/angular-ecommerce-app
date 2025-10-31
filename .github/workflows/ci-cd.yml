@@ -7,15 +7,16 @@ on:
 
 env:
   REGISTRY: docker.io
-  # Use o namespace do seu Docker Hub. Ex.: pedrobrantis
-  DOCKERHUB_NAMESPACE: ${{ secrets.REGISTRY_USERNAME }}
-  IMAGE_NAME: ${{ secrets.REGISTRY_USERNAME }}/${{ github.event.repository.name }}   # docker.io/<namespace>/<repo>
   NAMESPACE: app-demo
-  DEPLOYMENT: backend
-  CONTAINER: app
+
+  FRONT_DEPLOYMENT: frontend
+  FRONT_CONTAINER: app
+  BACK_DEPLOYMENT: backend
+  BACK_CONTAINER: app
 
 jobs:
   build-and-push:
+    name: Build & Push (frontend + backend)
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -37,28 +38,27 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      - name: Compute tags
-        id: meta
-        run: |
-          # Docker Hub é case-sensitive no path: garanta lowercase no repositório
-          REPO_LC="$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')"
-          echo "image=${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${REPO_LC}:${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-          echo "image_latest=${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${REPO_LC}:latest" >> $GITHUB_OUTPUT
-
-      - name: Build & Push
+      # ---------- FRONTEND ----------
+      - name: Build & Push Frontend
         uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ./client
+          file: ./client/Dockerfile
           push: true
-          tags: |
-            ${{ steps.meta.outputs.image }}
-            ${{ steps.meta.outputs.image_latest }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: docker.io/pedrobrantis/frontend:latest
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
-    outputs:
-      image_sha: ${{ steps.meta.outputs.image }}
-      image_latest: ${{ steps.meta.outputs.image_latest }}
+      # ---------- BACKEND ----------
+      - name: Build & Push Backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: docker.io/pedrobrantis/backend:latest
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
   deploy:
     name: Rollout via SSH on EC2
@@ -74,20 +74,20 @@ jobs:
       - name: Rollout with SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST }}       # IP/DNS da EC2
-          username: ${{ secrets.EC2_USER }}   # ex.: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}     # conteúdo da .pem
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}  # ex.: ubuntu
+          key: ${{ secrets.EC2_SSH_KEY }}
           port: 22
           script_stop: true
           script: |
             set -euo pipefail
-
-            # k3s kubeconfig (geralmente requer sudo)
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
             alias kubectl='sudo KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl'
 
-            IMAGE="${{ needs.build-and-push.outputs.image_sha }}"
-            echo "Aplicando ${IMAGE} em ${DEPLOYMENT}/${CONTAINER} (ns ${NAMESPACE})"
+            echo ">> Atualizando FRONTEND"
+            kubectl -n ${NAMESPACE} set image deployment/${FRONT_DEPLOYMENT} ${FRONT_CONTAINER}=docker.io/pedrobrantis/frontend:latest --record
+            kubectl -n ${NAMESPACE} rollout status deployment/${FRONT_DEPLOYMENT} --timeout=300s
 
-            kubectl -n ${NAMESPACE} set image deployment/${DEPLOYMENT} ${CONTAINER}=${IMAGE}
-            kubectl -n ${NAMESPACE} rollout status deployment/${DEPLOYMENT} --timeout=300s
+            echo ">> Atualizando BACKEND"
+            kubectl -n ${NAMESPACE} set image deployment/${BACK_DEPLOYMENT} ${BACK_CONTAINER}=docker.io/pedrobrantis/backend:latest --record
+            kubectl -n ${NAMESPACE} rollout status deployment/${BACK_DEPLOYMENT} --timeout=300s
