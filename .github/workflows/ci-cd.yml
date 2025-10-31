@@ -1,23 +1,25 @@
-name: CI/CD – Build, Push & Rollout (SSH)
+name: CI/CD – Build, Push & Rollout (Docker Hub + SSH)
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "master" ]
   workflow_dispatch:
 
 env:
-  REGISTRY: ghcr.io                        # mude para docker.io se for Docker Hub
-  IMAGE_NAME: ${{ github.repository }}     # ghcr.io/<owner>/<repo>
-  NAMESPACE: app-demo                      # seu namespace k8s
-  DEPLOYMENT: backend                      # seu Deployment
-  CONTAINER: app                           # nome do container no Deployment
+  REGISTRY: docker.io
+  # Use o namespace do seu Docker Hub. Ex.: pedrobrantis
+  DOCKERHUB_NAMESPACE: ${{ secrets.REGISTRY_USERNAME }}
+  IMAGE_NAME: ${{ secrets.REGISTRY_USERNAME }}/${{ github.event.repository.name }}   # docker.io/<namespace>/<repo>
+  NAMESPACE: app-demo
+  DEPLOYMENT: backend
+  CONTAINER: app
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write          # GHCR com GITHUB_TOKEN
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -28,23 +30,20 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Login to registry
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          # Docker Hub? use:
-          # username: ${{ secrets.REGISTRY_USERNAME }}
-          # password: ${{ secrets.REGISTRY_PASSWORD }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
 
       - name: Compute tags
         id: meta
         run: |
-          SHA_TAG=${GITHUB_SHA::7}
-          echo "sha_tag=$SHA_TAG" >> $GITHUB_OUTPUT
-          echo "image=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${SHA_TAG}" >> $GITHUB_OUTPUT
-          echo "image_latest=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_OUTPUT
+          # Docker Hub é case-sensitive no path: garanta lowercase no repositório
+          REPO_LC="$(echo "${{ github.event.repository.name }}" | tr '[:upper:]' '[:lower:]')"
+          echo "image=${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${REPO_LC}:${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "image_latest=${{ env.REGISTRY }}/${{ env.DOCKERHUB_NAMESPACE }}/${REPO_LC}:latest" >> $GITHUB_OUTPUT
 
       - name: Build & Push
         uses: docker/build-push-action@v6
@@ -67,10 +66,6 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout (opcional, só pra ter repo)
-        uses: actions/checkout@v4
-
-      # Opcional: capturar host key pro known_hosts (melhor que StrictHostKeyChecking=no)
       - name: Add EC2 host key
         run: |
           mkdir -p ~/.ssh
@@ -79,20 +74,20 @@ jobs:
       - name: Rollout with SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
-          host: ${{ secrets.EC2_HOST }}       # IP público ou DNS da sua EC2
+          host: ${{ secrets.EC2_HOST }}       # IP/DNS da EC2
           username: ${{ secrets.EC2_USER }}   # ex.: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}     # conteúdo do .pem
+          key: ${{ secrets.EC2_SSH_KEY }}     # conteúdo da .pem
           port: 22
           script_stop: true
           script: |
             set -euo pipefail
-            # garante kubectl do k3s
+
+            # k3s kubeconfig (geralmente requer sudo)
             export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
-            # se precisar sudo:
             alias kubectl='sudo KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl'
 
             IMAGE="${{ needs.build-and-push.outputs.image_sha }}"
-            echo "Aplicando imagem ${IMAGE} em ${DEPLOYMENT}/${CONTAINER} (ns ${NAMESPACE})"
+            echo "Aplicando ${IMAGE} em ${DEPLOYMENT}/${CONTAINER} (ns ${NAMESPACE})"
 
             kubectl -n ${NAMESPACE} set image deployment/${DEPLOYMENT} ${CONTAINER}=${IMAGE}
             kubectl -n ${NAMESPACE} rollout status deployment/${DEPLOYMENT} --timeout=300s
