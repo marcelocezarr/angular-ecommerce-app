@@ -85,9 +85,7 @@ jobs:
             alias kubectl='sudo KUBECONFIG=/etc/rancher/k3s/k3s.yaml kubectl'
 
             echo ">> Atualizando FRONTEND"
-            kubectl -n ${NAMESPACE} set image deployment/${FRONT_DEPLOYMENT} ${FRONT_CONTAINER}=docker.io/pedrobrantis/frontend:latest --record
-            kubectl -n ${NAMESPACE} rollout status deployment/${FRONT_DEPLOYMENT} --timeout=300s
+            kubectl -n ${NAMESPACE} rollout restart deployment frontend
 
             echo ">> Atualizando BACKEND"
-            kubectl -n ${NAMESPACE} set image deployment/${BACK_DEPLOYMENT} ${BACK_CONTAINER}=docker.io/pedrobrantis/backend:latest --record
-            kubectl -n ${NAMESPACE} rollout status deployment/${BACK_DEPLOYMENT} --timeout=300s
+            kubectl -n ${NAMESPACE} rollout restart deployment backend
