@@ -1,0 +1,45 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mysql-import-dump
+  namespace: app-demo
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: import
+          image: alpine:3.20
+          command: ["/bin/sh","-c"]
+          args:
+            - |
+              set -euo pipefail
+              apk add --no-cache mysql-client
+              echo "Importando dump local /dumps/dump.sql ..."
+              mysql -h mysql.app-demo.svc.cluster.local -P 3306 -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /dumps/dump.sql
+              echo "OK"
+          env:
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_DATABASE
+            - name: MYSQL_USER
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_USER
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_PASSWORD
+          volumeMounts:
+            - name: dumps
+              mountPath: /dumps
+      volumes:
+        - name: dumps
+          hostPath:
+            path: /tmp/dumps   # coloque seu dump em /tmp/dumps/dump.sql no host
+            type: Directory
