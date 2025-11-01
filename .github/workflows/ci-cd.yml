@@ -38,7 +38,7 @@ jobs:
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
 
-      # ---------- FRONTEND ----------
+      # ---------- FRONT ----------
       - name: Build & Push Frontend
         uses: docker/build-push-action@v6
         with:
@@ -49,7 +49,7 @@ jobs:
           cache-from: type=gha,scope=frontend
           cache-to: type=gha,mode=max,scope=frontend
 
-      # ---------- BACKEND ----------
+      # ---------- BACK ----------
       - name: Build & Push Backend
         uses: docker/build-push-action@v6
         with:

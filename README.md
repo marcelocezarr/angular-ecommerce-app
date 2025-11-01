@@ -30,4 +30,3 @@
 - **Frontend**: defina `image: your-docker-registry/your-frontend:latest`.
 - **Ingress**: se usar K3s/Traefik, troque a classe/annotations conforme necessidade.
 - **Dump**: adapte `50-job-mysql-import.yaml` para baixar ou montar o arquivo.
-<-- retry backend push fix 2 -->
