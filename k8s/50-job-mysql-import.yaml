@@ -17,7 +17,7 @@ spec:
               set -euo pipefail
               apk add --no-cache mysql-client
               echo "Importando dump local /dumps/dump.sql ..."
-              mysql -h mysql.app-demo.svc.cluster.local -P 3306 -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /dumps/dump.sql
+              mysql -h mysql.app-demo.svc.cluster.local -P 3306 -u"${MYSQL_USER}" -p"${MYSQL_PASSWORD}" "${MYSQL_DATABASE}" < /dumps/sql_dump.sql
               echo "OK"
           env:
             - name: MYSQL_DATABASE
@@ -41,5 +41,5 @@ spec:
       volumes:
         - name: dumps
           hostPath:
-            path: /tmp/dumps   # coloque seu dump em /tmp/dumps/dump.sql no host
+            path: /home/ubuntu/angular-ecommerce-app/mysql/init   # coloque seu dump em /tmp/dumps/dump.sql no host
             type: Directory

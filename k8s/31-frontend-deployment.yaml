@@ -17,8 +17,8 @@ spec:
         app.kubernetes.io/name: frontend
     spec:
       containers:
-        - name: web
-          image: pedrobrantis/frontend:latest
+        - name: frontend
+          image: marcelopvdo/frontend:banco
           imagePullPolicy: Always
           ports:
             - containerPort: 80
